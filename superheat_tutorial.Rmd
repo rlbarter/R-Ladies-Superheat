@@ -1,0 +1,272 @@
+---
+title: "R Ladies Superheat Tutorial"
+author: "Rebecca Barter"
+date: "9/20/2017"
+output: html_document
+---
+
+In this tutorial, you will learn how to use superheat, and will discover a portion of the immense variety of customization options.
+
+The superheat vignette can be found at https://rlbarter.github.io/superheat/. This incredibly detailed vignette was created using bookdown and is hosted on github pages and it contains (almost) everything you might want to know about using superheat!
+
+# Setup
+
+First, let's load the packages we will be using throughout the tutorial.
+
+```{r, message=FALSE, warning=FALSE}
+# load packages
+library(tidyverse)
+library(devtools)
+library(knitr)
+library(forcats)
+```
+
+Next, we will install the superheat package from GitHub (using the `install_github()` function from the `devtools` package). Note that superheat is also on CRAN, but this is an older version; the most recent version will always be the GitHub development version (but it might have a few minor bugs here and there!).
+
+
+```{r, eval = FALSE}
+# install superheat package from github
+install_github("rlbarter/superheat")
+```
+
+```{r}
+# install superheat
+library(superheat)
+```
+
+# Get the data
+
+We will be using data on organ donations from 2006 to 2014 is found in the `organ.csv` file in the data folder. Let's load it in:
+
+```{r}
+# load in the organ donation data
+organs <- read.csv("data/organs.csv")
+colnames(organs) <- c("country", 2006:2014)
+# view first 6 rows of the organ donation data
+kable(head(organs), digits = 1)
+```
+
+
+# Heatmaps using ggplot2
+
+To make a heatmap in ggplot2, you need to convert your dataframe to long-form.
+
+
+```{r}
+# convert organs to longform using tidyr
+organs_long <- organs %>% 
+  gather(key = "year", value = "donors", -country)
+# look at the first 6 rows of the long-form dataset
+kable(head(organs_long), digits = 1)
+# look at the last 6 rows of the long-form dataset
+kable(tail(organs_long), digits = 1)
+```
+
+I could use ggplot to create a heatmap of the organ donations by country. 
+
+```{r, fig.height = 8}
+ggplot(organs_long) + 
+  geom_raster(aes(x = year, y = country, fill = donors)) +
+  scale_fill_viridis_c()
+```
+
+Clearly some row ordering is needed! For example, perhaps we want to order the rows in decreasing order. However, while it is easy to rearrange the rows of a matrix when it is stored in its original form, manipulating a matrix when it is recorded in long-form can be surprisingly difficult.
+
+One way to do it is as follows:
+
+```{r}
+organs_long <- organs_long %>% 
+  # identify the average number of donations per country
+  group_by(country) %>%
+  mutate(avg_donors = mean(donors, na.rm = T)) %>%
+  ungroup() %>%
+  arrange(avg_donors) %>%
+  # remove the avg_donors column
+  select(-avg_donors) %>%
+  # reorder the country factor levels
+  mutate(country = fct_inorder(country))
+
+```
+
+
+While this does the job, it is somewhat convoluted, especially for someone who is not a highly experienced R user! The re-ordered plot is shown below:
+
+
+```{r, fig.height = 8}
+ggplot(organs_long) + 
+  geom_raster(aes(x = year, y = country, fill = donors)) +
+  scale_fill_viridis_c()
+```
+
+
+# Heatmaps using superheat
+
+When using superheat, there is no need to convert the original matrix to a longform.
+
+```{r}
+# convert the data to a numeric-only data frame
+organs_matrix <- organs
+# replace the rownames with the country names
+rownames(organs_matrix) <- organs$country
+organs_matrix <- organs_matrix %>% select(-country)
+```
+
+```{r, fig.height = 14, fig.width = 9}
+superheat(organs_matrix)
+```
+
+Rearranging the rows is much simpler when dealing with a wideform matrix rather than a longform data frame.
+
+```{r, eval = FALSE}
+# identify the order of the rows (increasing order of average donations)
+row_order <- apply(organs_matrix, 1, mean, na.rm = T) %>% order
+# reorder the rows of the matrix
+organs_matrix <- organs_matrix[row_order, ]
+```
+
+
+However, with superheat, not even this is necessary. You can simply provide a row order argument to the function.
+
+
+```{r, fig.height = 14, fig.width = 9}
+superheat(organs_matrix, 
+          title = "Number of organs donated by deceased donors\nper 100,000 individuals",
+          # arrange the rows in order of increasing average number of donors
+          order.rows = order(apply(organs_matrix, 1, mean, na.rm = T)))
+```
+
+# The power of superheat: adding additional information
+
+
+Much of the power of the superheat package comes from the ability to add additional information to the heatmap.
+
+
+
+
+## Adding adjacent variables
+
+You can add additional variables to the plot via adjacent scatter, line, bar, or boxplots. For adjacent plots above the heatmap, the x-axis corresponds to the column variables. Correspondingly, for ajacent plots to the right of the heatmap, the y-axis corresponds to the row variables.
+
+
+In the superheatmap below, we add a line plot above the columns which corresponds to the total number of organs (per 100,000) donated over time (summing over the countries).
+
+
+```{r, fig.height = 17, fig.width = 9}
+# adding a trendline above the heatmap
+superheat(organs_matrix,
+          title = "Number of organs donated by deceased donors\nper 100,000 individuals",
+          # arrange the rows in order of increasing average number of donors
+          order.rows = order(apply(organs_matrix, 1, mean, na.rm = T)),
+          
+          # add a plot of total organs donated accross time
+          yt = apply(organs_matrix, 2, sum, na.rm = T),
+          yt.axis.name = "Total organs\nfrom deceased donors",
+          yt.plot.type = "line",
+          yt.plot.size = 0.25,
+          yt.axis.name.size = 12)
+```
+
+
+Next, we can also add external information, such as the human development index (HDI) ranking for each country, as a barplot to the right of the rows.
+
+```{r}
+hdi <- read.csv("data/hdi_2014.csv") 
+kable(head(hdi))
+```
+
+Note that the `order.rows` argument will apply the same ordering to `yr` as to the rows of the matrix.
+
+
+```{r, fig.height = 17, fig.width = 12}
+# add hdi as a barplot to the rows
+superheat(organs_matrix,
+          title = "Number of organs donated by deceased donors\nper 100,000 individuals",
+          # arrange the rows in order of increasing average number of donors
+          order.rows = order(apply(organs_matrix, 1, mean, na.rm = T)),
+          
+          # add a plot of total organs donated accross time
+          yt = apply(organs_matrix, 2, sum, na.rm = T),
+          yt.axis.name = "Total organs\nfrom deceased donors",
+          yt.plot.type = "line",
+          yt.plot.size = 0.25,
+          yt.axis.name.size = 12,
+          
+          # add a hdi barplot
+          yr = hdi$rank,
+          yr.plot.type = "bar",
+          yr.axis.name = "HDI ranking",
+          yr.axis.name.size = 12)
+```
+
+### Perfecting the aesthetics
+
+Having added a bunch of information to our superheatmap, we are now ready to perfect our superheatmap. For instance, we can change the color of each 
+
+```{r, fig.height = 17, fig.width = 12}
+# doing a bunch of stuff to make the plot prettier
+superheat(organs_matrix,
+          title = "Number of organs donated by deceased donors\nper 100,000 individuals",
+          # arrange the rows in order of increasing average number of donors
+          order.rows = order(apply(organs_matrix, 1, mean, na.rm = T)),
+          
+          # add a plot of total organs donated accross time
+          yt = apply(organs_matrix, 2, sum, na.rm = T),
+          yt.axis.name = "Total organs\nfrom deceased donors",
+          yt.plot.type = "line",
+          yt.plot.size = 0.25,
+          yt.axis.name.size = 14,
+          
+          # add a hdi barplot
+          yr = hdi$rank,
+          yr.plot.type = "bar",
+          yr.axis.name = "HDI ranking",
+          yr.axis.name.size = 14,
+          yr.obs.col = rep("grey80", nrow(organs_matrix)),
+          
+          # bottom labels
+          bottom.label.size = 0.05,
+          bottom.label.col = "white",
+          bottom.label.text.angle = 90,
+          bottom.label.text.alignment = "right",
+          
+          # left labels
+          left.label.col = "white",
+          left.label.text.alignment = "right",
+          
+          # grid lines
+          grid.vline.col = "white",
+          grid.vline.size = 2,
+          force.grid.hline = TRUE,
+          grid.hline.col = "white",
+          grid.hline.size = 0.5)
+```
+
+
+## Bonus: Adding text or numbers
+
+As a bonus, if you so desired, you could add the raw counts to the heatmap.
+
+```{r, fig.height = 16, fig.width = 9}
+# remove NAs for matrix to plot ontop of heatmap
+organs_text <- round(organs_matrix, 1)
+organs_text[is.na(organs_text)] <- 0
+organs_text <- as.matrix(organs_text)
+# plot the matrix on top of the heatmap
+superheat(organs_matrix,
+          title = "Number of organs donated by deceased donors\nper 100,000 individuals",
+          X.text = organs_text)
+```
+
+You could also change the color of the text so that the text for darker cells is lighter.
+
+```{r, fig.height = 16, fig.width = 9}
+# set text color
+organs_text_color <- organs_text
+organs_text_color[organs_text < 9] <- "grey80"
+organs_text_color[organs_text >= 9] <- "black"
+# plot the matrix on top of the heatmap
+superheat(organs_matrix,
+          title = "Number of organs donated by deceased donors\nper 100,000 individuals",
+          X.text = organs_text,
+          X.text.col = organs_text_color)
+```
